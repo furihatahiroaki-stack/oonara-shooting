@@ -87,23 +87,30 @@
   resize();
 
   // ---------- BGM ----------
-  const bgmTitle = document.getElementById('bgm-title');
-  const bgmGame  = document.getElementById('bgm-game');
+  const bgmTitle = document.getElementById('bgm-title'); // 1曲目：レッキングクルー
+  const bgmGame  = document.getElementById('bgm-game');  // 2曲目：天地を食らう２
   bgmTitle.volume = 0.6; bgmGame.volume = 0.6;
+  bgmTitle.loop = false; // 1回流したら2曲目へ
+  bgmGame.loop  = true;
 
-  // iOS Safari: 最初のタッチで両ファイルを一瞬再生→即停止してロック解除
+  // 1曲目が終わったら自動で2曲目へ
+  bgmTitle.addEventListener('ended', () => {
+    if (state === 'playing') { bgmGame.currentTime = 0; bgmGame.play().catch(()=>{}); }
+  });
+
+  // iOS Safari: 最初のタッチで両ファイルをロック解除
   document.addEventListener('touchstart', function iosUnlock() {
     [bgmTitle, bgmGame].forEach(a => { a.play().then(() => a.pause()).catch(()=>{}); });
     document.removeEventListener('touchstart', iosUnlock);
   }, { once: true });
 
-  function switchToGameBgm() {
-    bgmTitle.pause(); bgmTitle.currentTime = 0;
-    bgmGame.currentTime = 0; bgmGame.play().catch(()=>{});
-  }
-  function switchToTitleBgm() {
+  function startBgmSequence() {
     bgmGame.pause(); bgmGame.currentTime = 0;
     bgmTitle.currentTime = 0; bgmTitle.play().catch(()=>{});
+  }
+  function stopAllBgm() {
+    bgmTitle.pause(); bgmTitle.currentTime = 0;
+    bgmGame.pause();  bgmGame.currentTime  = 0;
   }
 
   // ---------- Audio ----------
@@ -578,7 +585,7 @@
     document.getElementById('overScreen').classList.add('hidden');
     resetGame();
     state = 'playing';
-    switchToGameBgm();
+    startBgmSequence();
     audio();
     loop();
   }
@@ -587,7 +594,7 @@
   function endGame() {
     state = 'over';
     cancelAnimationFrame(raf);
-    switchToTitleBgm();
+    stopAllBgm();
     document.getElementById('scoreFinal').textContent = score;
     const rec = document.getElementById('newRecord');
     if (score > best) { best = score; rec.textContent = '🎉 ハイスコア更新！'; }
