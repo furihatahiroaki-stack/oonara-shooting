@@ -45,6 +45,8 @@
 </style>
 </head>
 <body>
+<audio id="bgm-title" src="bgm_title.mp3" loop preload="auto"></audio>
+<audio id="bgm-game"  src="bgm_game.mp3"  loop preload="auto"></audio>
 <div id="wrap">
   <canvas id="game"></canvas>
 
@@ -85,10 +87,15 @@
   resize();
 
   // ---------- BGM ----------
-  const bgmTitle = new Audio('bgm_title.mp3');
-  bgmTitle.loop = true; bgmTitle.volume = 0.6;
-  const bgmGame = new Audio('bgm_game.mp3');
-  bgmGame.loop = true; bgmGame.volume = 0.6;
+  const bgmTitle = document.getElementById('bgm-title');
+  const bgmGame  = document.getElementById('bgm-game');
+  bgmTitle.volume = 0.6; bgmGame.volume = 0.6;
+
+  // iOS Safari: 最初のタッチで両ファイルを一瞬再生→即停止してロック解除
+  document.addEventListener('touchstart', function iosUnlock() {
+    [bgmTitle, bgmGame].forEach(a => { a.play().then(() => a.pause()).catch(()=>{}); });
+    document.removeEventListener('touchstart', iosUnlock);
+  }, { once: true });
 
   function switchToGameBgm() {
     bgmTitle.pause(); bgmTitle.currentTime = 0;
