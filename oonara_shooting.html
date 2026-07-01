@@ -84,6 +84,15 @@
   window.addEventListener('resize', resize);
   resize();
 
+  // ---------- BGM ----------
+  const bgm = new Audio('bgm_title.mp3');
+  bgm.loop = true;
+  bgm.volume = 0.6;
+  let bgmStarted = false;
+  function startBgm() {
+    if (!bgmStarted) { bgmStarted = true; bgm.play().catch(()=>{}); }
+  }
+
   // ---------- Audio ----------
   let actx = null;
   function audio() { if (!actx) actx = new (window.AudioContext||window.webkitAudioContext)(); return actx; }
@@ -556,6 +565,7 @@
     document.getElementById('overScreen').classList.add('hidden');
     resetGame();
     state = 'playing';
+    startBgm();
     audio();
     loop();
   }
