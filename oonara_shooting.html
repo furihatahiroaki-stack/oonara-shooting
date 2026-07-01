@@ -85,13 +85,28 @@
   resize();
 
   // ---------- BGM ----------
-  const bgm = new Audio('bgm_title.mp3');
-  bgm.loop = true;
-  bgm.volume = 0.6;
-  let bgmStarted = false;
-  function startBgm() {
-    if (!bgmStarted) { bgmStarted = true; bgm.play().catch(()=>{}); }
+  const bgmTitle = new Audio('bgm_title.mp3');
+  bgmTitle.loop = true; bgmTitle.volume = 0.6;
+  const bgmGame = new Audio('bgm_game.mp3');
+  bgmGame.loop = true; bgmGame.volume = 0.6;
+
+  let bgmReady = false;
+  function initBgm() {
+    if (!bgmReady) { bgmReady = true; bgmTitle.play().catch(()=>{}); }
   }
+  function switchToGameBgm() {
+    bgmTitle.pause(); bgmTitle.currentTime = 0;
+    bgmGame.currentTime = 0; bgmGame.play().catch(()=>{});
+  }
+  function switchToTitleBgm() {
+    bgmGame.pause(); bgmGame.currentTime = 0;
+    bgmTitle.currentTime = 0; bgmTitle.play().catch(()=>{});
+  }
+
+  // タイトル画面で最初のユーザー操作時にBGM開始
+  ['keydown','touchstart','mousedown'].forEach(ev =>
+    window.addEventListener(ev, initBgm, { once: true })
+  );
 
   // ---------- Audio ----------
   let actx = null;
@@ -565,7 +580,7 @@
     document.getElementById('overScreen').classList.add('hidden');
     resetGame();
     state = 'playing';
-    startBgm();
+    switchToGameBgm();
     audio();
     loop();
   }
@@ -574,6 +589,7 @@
   function endGame() {
     state = 'over';
     cancelAnimationFrame(raf);
+    switchToTitleBgm();
     document.getElementById('scoreFinal').textContent = score;
     const rec = document.getElementById('newRecord');
     if (score > best) { best = score; rec.textContent = '🎉 ハイスコア更新！'; }
