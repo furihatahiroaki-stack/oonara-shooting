@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>おならシューティング</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  html,body {
+    width:100%; height:100%; overflow:hidden;
+    background: linear-gradient(180deg,#bfe8ff 0%, #e8fbe0 60%, #fff7d6 100%);
+    font-family: "Hiragino Maru Gothic ProN","Rounded Mplus 1c","Comic Sans MS",sans-serif;
+    touch-action:none;
+  }
+  #wrap { position:relative; width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+  canvas { background:transparent; touch-action:none; display:block; max-width:100%; max-height:100%; }
+
+  #hud {
+    position:absolute; top:0; left:0; right:0; padding:10px 16px;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    pointer-events:none; font-weight:bold; color:#5a3d1c; text-shadow:0 2px 0 #fff8e0;
+    font-size:18px; z-index:5;
+  }
+  #hearts span { font-size:22px; margin-right:2px; }
+  #combo { position:absolute; top:46px; left:16px; color:#ff6f3c; font-weight:bold; font-size:14px; text-shadow:0 1px 0 #fff; z-index:5; opacity:0; transition:opacity .2s; }
+
+  .overlay {
+    position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(255,250,230,0.92); text-align:center; padding:24px; z-index:10;
+  }
+  .overlay h1 { font-size:32px; color:#8a5a2b; margin-bottom:8px; }
+  .overlay h2 { font-size:24px; color:#c4593b; margin-bottom:14px; }
+  .overlay p { font-size:15px; color:#6b5436; margin:4px 0; line-height:1.6; }
+  .btn {
+    margin-top:18px; padding:14px 36px; font-size:18px; font-weight:bold; color:#fff;
+    background:linear-gradient(180deg,#8bd96b,#5cb84a); border:none; border-radius:30px;
+    box-shadow:0 4px 0 #3f8a32; cursor:pointer;
+  }
+  .btn:active { transform:translateY(3px); box-shadow:0 1px 0 #3f8a32; }
+  .hidden { display:none !important; }
+
+  #touchHint { font-size:13px; color:#7a6a4a; margin-top:10px; }
+
+  #scoreFinal { font-size:40px; color:#e08020; font-weight:bold; margin:10px 0; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div id="scoreBox">SCORE: <span id="score">0</span></div>
+    <div id="hearts"></div>
+  </div>
+  <div id="combo">COMBO!</div>
+
+  <div class="overlay" id="startScreen">
+    <h1>💨 おならシューティング 💨</h1>
+    <p>悪臭バイキンたちが街にせまる！<br>おならの力でぜんぶ吹き飛ばせ！<br>🍰ケーキを食べると子供たち3人が助っ人に！</p>
+    <p id="touchHint">スマホ：指でドラッグして移動（自動連射）<br>PC：← → で移動 / スペースで発射</p>
+    <button class="btn" id="startBtn">スタート！</button>
+  </div>
+
+  <div class="overlay hidden" id="overScreen">
+    <h2>やられた…💀</h2>
+    <div id="scoreFinal">0</div>
+    <p id="newRecord"></p>
+    <button class="btn" id="retryBtn">もう一回！</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  let W, H, DPR;
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W * DPR; canvas.height = H * DPR;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ---------- Audio ----------
+  let actx = null;
+  function audio() { if (!actx) actx = new (window.AudioContext||window.webkitAudioContext)(); return actx; }
+  function tootSound() {
+    const ac = audio();
+    const o = ac.createOscillator(); const g = ac.createGain();
+    o.type = 'sawtooth';
+    const t0 = ac.currentTime;
+    o.frequency.setValueAtTime(220 + Math.random()*40, t0);
+    o.frequency.exponentialRampToValueAtTime(80, t0+0.18);
+    g.gain.setValueAtTime(0.18, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0+0.2);
+    o.connect(g); g.connect(ac.destination);
+    o.start(t0); o.stop(t0+0.22);
+  }
+  function popSound() {
+    const ac = audio();
+    const o = ac.createOscillator(); const g = ac.createGain();
+    o.type = 'square';
+    const t0 = ac.currentTime;
+    o.frequency.setValueAtTime(500, t0);
+    o.frequency.exponentialRampToValueAtTime(120, t0+0.12);
+    g.gain.setValueAtTime(0.15, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0+0.14);
+    o.connect(g); g.connect(ac.destination);
+    o.start(t0); o.stop(t0+0.15);
+  }
+  function hitSound() {
+    const ac = audio();
+    const o = ac.createOscillator(); const g = ac.createGain();
+    o.type = 'sawtooth';
+    const t0 = ac.currentTime;
+    o.frequency.setValueAtTime(180, t0);
+    o.frequency.exponentialRampToValueAtTime(40, t0+0.4);
+    g.gain.setValueAtTime(0.25, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0+0.4);
+    o.connect(g); g.connect(ac.destination);
+    o.start(t0); o.stop(t0+0.42);
+  }
+  function cakeSound() {
+    const ac = audio();
+    [0,0.07,0.14].forEach((d,i)=>{
+      const o = ac.createOscillator(); const g = ac.createGain();
+      o.type = 'triangle';
+      const t0 = ac.currentTime + d;
+      o.frequency.setValueAtTime(500 + i*200, t0);
+      g.gain.setValueAtTime(0.2, t0);
+      g.gain.exponentialRampToValueAtTime(0.001, t0+0.15);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t0); o.stop(t0+0.16);
+    });
+  }
+
+  // ---------- Game state ----------
+  let state = 'idle'; // idle, playing, over
+  let score = 0, lives = 3, frame = 0, spawnTimer = 0, beanTimer = 0;
+  let combo = 0, comboTimer = 0;
+  let difficulty = 1;
+
+  const player = { x:0, y:0, w:54, h:54, speed:7, power:1, powerTimer:0 };
+  let bullets = [], enemies = [], particles = [], cakes = [], kids = [];
+
+  function resetGame() {
+    score = 0; lives = 3; frame = 0; spawnTimer = 0; beanTimer = 0; difficulty = 1;
+    combo = 0; comboTimer = 0;
+    player.x = W/2; player.y = H - 110; player.power = 1; player.powerTimer = 0;
+    bullets = []; enemies = []; particles = []; cakes = []; kids = [];
+    updateHud();
+  }
+
+  function updateHud() {
+    document.getElementById('score').textContent = score;
+    const hearts = document.getElementById('hearts');
+    hearts.innerHTML = '';
+    for (let i=0;i<3;i++) {
+      const s = document.createElement('span');
+      s.textContent = i < lives ? '💚' : '🤍';
+      hearts.appendChild(s);
+    }
+  }
+
+  // ---------- Input ----------
+  let keys = {};
+  window.addEventListener('keydown', e => {
+    keys[e.code] = true;
+    if (e.code === 'Space') e.preventDefault();
+  });
+  window.addEventListener('keyup', e => keys[e.code] = false);
+
+  let touching = false, touchX = null;
+  canvas.addEventListener('touchstart', e => {
+    touching = true; touchX = e.touches[0].clientX; e.preventDefault();
+  }, {passive:false});
+  canvas.addEventListener('touchmove', e => {
+    touchX = e.touches[0].clientX; e.preventDefault();
+  }, {passive:false});
+  canvas.addEventListener('touchend', e => { touching = false; e.preventDefault(); }, {passive:false});
+
+  // ---------- Entities ----------
+  function shoot() {
+    const spread = player.power;
+    const angles = spread === 1 ? [0] : spread === 2 ? [-0.18,0.18] : [-0.3,0,0.3];
+    angles.forEach(a => {
+      bullets.push({
+        x: player.x, y: player.y - 20,
+        vx: Math.sin(a)*5, vy: -9,
+        r: 13 + Math.random()*4, life:0
+      });
+    });
+    tootSound();
+  }
+  let shootCooldown = 0;
+
+  function spawnEnemy() {
+    const types = ['germ','fly','virus'];
+    const type = types[Math.floor(Math.random()*types.length)];
+    const r = 22 + Math.random()*14;
+    enemies.push({
+      x: r + Math.random()*(W-r*2), y: -40,
+      r, type,
+      vy: (1.2 + Math.random()*1.3) * difficulty,
+      vx: (Math.random()-0.5)*1.6,
+      wob: Math.random()*Math.PI*2,
+      hp: type==='virus' ? 2 : 1
+    });
+  }
+
+  function spawnCake() {
+    cakes.push({ x: 30+Math.random()*(W-60), y:-30, vy: 2.4, wob: Math.random()*Math.PI*2 });
+  }
+
+  function spawnKids() {
+    kids.length = 0;
+    const offsets = [-46, 46, 0];
+    const ys = [10, 10, -34];
+    const types = ['cap', 'dress', 'shirt'];
+    for (let i=0;i<3;i++) {
+      kids.push({ ox: offsets[i], oy: ys[i], cooldown: 8 + i*5, bob: Math.random()*Math.PI*2, type: types[i] });
+    }
+  }
+
+  function spawnParticles(x,y,color,n=10) {
+    for (let i=0;i<n;i++) {
+      const ang = Math.random()*Math.PI*2;
+      const sp = 1.5+Math.random()*3.5;
+      particles.push({
+        x,y, vx:Math.cos(ang)*sp, vy:Math.sin(ang)*sp,
+        life:1, color, r: 2+Math.random()*4
+      });
+    }
+  }
+
+  // ---------- Update ----------
+  function update() {
+    frame++;
+    difficulty = 1 + score/400;
+
+    // player movement
+    if (keys['ArrowLeft'] || keys['KeyA']) player.x -= player.speed;
+    if (keys['ArrowRight'] || keys['KeyD']) player.x += player.speed;
+    if (touching && touchX !== null) {
+      player.x += (touchX - player.x) * 0.25;
+    }
+    player.x = Math.max(30, Math.min(W-30, player.x));
+
+    // shooting
+    shootCooldown--;
+    const wantShoot = keys['Space'] || touching;
+    if (wantShoot && shootCooldown <= 0) {
+      shoot();
+      shootCooldown = 11;
+    }
+
+    if (player.powerTimer > 0) {
+      player.powerTimer--;
+      if (player.powerTimer === 0) { player.power = 1; kids = []; }
+    }
+
+    // spawn
+    spawnTimer--;
+    if (spawnTimer <= 0) {
+      spawnEnemy();
+      spawnTimer = Math.max(18, 55 - difficulty*8);
+    }
+    beanTimer--;
+    if (beanTimer <= 0) {
+      spawnCake();
+      beanTimer = 420 + Math.random()*240;
+    }
+
+    // bullets
+    bullets.forEach(b => { b.x += b.vx; b.y += b.vy; b.life++; });
+    bullets = bullets.filter(b => b.y > -30 && b.x > -30 && b.x < W+30);
+
+    // enemies
+    enemies.forEach(en => {
+      en.wob += 0.08;
+      en.x += Math.sin(en.wob)*0.8 + en.vx*0.2;
+      en.y += en.vy;
+    });
+
+    // cakes
+    cakes.forEach(c => { c.y += c.vy; c.wob += 0.1; });
+    cakes = cakes.filter(c => c.y < H+30);
+
+    // kid helpers: follow player and auto-fire
+    kids.forEach(k => {
+      k.bob += 0.15;
+      k.cooldown--;
+      if (k.cooldown <= 0) {
+        const kx = player.x + k.ox, ky = player.y + k.oy;
+        bullets.push({ x:kx, y:ky-14, vx:0, vy:-8.5, r:9+Math.random()*2, life:0 });
+        k.cooldown = 26;
+      }
+    });
+
+    // collisions: bullets vs enemies
+    for (let i = enemies.length-1; i>=0; i--) {
+      const en = enemies[i];
+      for (let j = bullets.length-1; j>=0; j--) {
+        const b = bullets[j];
+        const dx = en.x-b.x, dy = en.y-b.y;
+        if (Math.hypot(dx,dy) < en.r + b.r) {
+          bullets.splice(j,1);
+          en.hp--;
+          spawnParticles(b.x,b.y,'#caa86b',4);
+          if (en.hp <= 0) {
+            score += en.type==='virus' ? 30 : en.type==='fly' ? 15 : 10;
+            combo++; comboTimer = 60;
+            spawnParticles(en.x,en.y,'#8a5a2b',16);
+            popSound();
+            enemies.splice(i,1);
+          }
+          break;
+        }
+      }
+    }
+
+    // enemies vs player / bottom
+    for (let i = enemies.length-1; i>=0; i--) {
+      const en = enemies[i];
+      const dx = en.x-player.x, dy = en.y-player.y;
+      if (Math.hypot(dx,dy) < en.r + 24) {
+        enemies.splice(i,1);
+        loseLife();
+        spawnParticles(en.x,en.y,'#c4593b',18);
+      } else if (en.y - en.r > H) {
+        enemies.splice(i,1);
+        loseLife();
+      }
+    }
+
+    // cakes vs player
+    for (let i = cakes.length-1; i>=0; i--) {
+      const c = cakes[i];
+      const dx = c.x-player.x, dy = c.y-player.y;
+      if (Math.hypot(dx,dy) < 32) {
+        cakes.splice(i,1);
+        player.power = 3; player.powerTimer = 420;
+        spawnKids();
+        cakeSound();
+        spawnParticles(c.x,c.y,'#ff9ecf',16);
+      }
+    }
+
+    // particles
+    particles.forEach(p => { p.x+=p.vx; p.y+=p.vy; p.vy+=0.12; p.life -= 0.025; });
+    particles = particles.filter(p => p.life > 0);
+
+    if (comboTimer > 0) { comboTimer--; if (comboTimer===0) combo=0; }
+
+    updateHud();
+    const comboEl = document.getElementById('combo');
+    if (combo >= 3) {
+      comboEl.style.opacity = 1;
+      comboEl.textContent = combo + ' COMBO!';
+    } else comboEl.style.opacity = 0;
+
+    if (lives <= 0) endGame();
+  }
+
+  function loseLife() {
+    lives--; hitSound();
+    if (lives < 0) lives = 0;
+  }
+
+  // ---------- Draw ----------
+  function drawPlayer() {
+    const {x,y} = player;
+    ctx.save();
+    ctx.translate(x,y);
+    // body
+    ctx.fillStyle = '#ffd9a0';
+    ctx.beginPath(); ctx.arc(0,0,26,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#c98b3c'; ctx.lineWidth=3; ctx.stroke();
+    // face
+    ctx.fillStyle = '#5a3d1c';
+    ctx.beginPath(); ctx.arc(-8,-4,3,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(8,-4,3,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0,6,8,0,Math.PI); ctx.stroke();
+    // cheeks
+    ctx.fillStyle = 'rgba(255,120,120,0.5)';
+    ctx.beginPath(); ctx.arc(-16,4,5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(16,4,5,0,Math.PI*2); ctx.fill();
+    // power glow
+    if (player.power > 1) {
+      ctx.strokeStyle = 'rgba(140,220,90,0.7)';
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(0,0,32,0,Math.PI*2); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawBullet(b) {
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    ctx.fillStyle = '#bcd98a';
+    ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#9fc46a';
+    ctx.beginPath(); ctx.arc(b.x-b.r*0.4,b.y+b.r*0.2,b.r*0.5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(b.x+b.r*0.5,b.y-b.r*0.1,b.r*0.4,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawEnemy(en) {
+    ctx.save();
+    ctx.translate(en.x,en.y);
+    const colors = { germ:'#b06bd9', fly:'#5a6b8a', virus:'#d94f4f' };
+    ctx.fillStyle = colors[en.type];
+    ctx.beginPath(); ctx.arc(0,0,en.r,0,Math.PI*2); ctx.fill();
+    // spikes for virus
+    if (en.type === 'virus') {
+      ctx.strokeStyle = colors.virus; ctx.lineWidth=3;
+      for (let i=0;i<8;i++) {
+        const a = i/8*Math.PI*2;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a)*en.r, Math.sin(a)*en.r);
+        ctx.lineTo(Math.cos(a)*(en.r+7), Math.sin(a)*(en.r+7));
+        ctx.stroke();
+      }
+    }
+    // eyes
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(-en.r*0.3,-en.r*0.1,en.r*0.28,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(en.r*0.3,-en.r*0.1,en.r*0.28,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.arc(-en.r*0.3,-en.r*0.1,en.r*0.13,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(en.r*0.3,-en.r*0.1,en.r*0.13,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawCake(c) {
+    ctx.save();
+    ctx.translate(c.x, c.y + Math.sin(c.wob)*3);
+    // slice base
+    ctx.fillStyle = '#fff0e0';
+    ctx.beginPath();
+    ctx.moveTo(0,-16); ctx.lineTo(14,12); ctx.lineTo(-14,12); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#e0a868'; ctx.lineWidth=2; ctx.stroke();
+    // sponge layer
+    ctx.fillStyle = '#f4c277';
+    ctx.beginPath();
+    ctx.moveTo(-3,-7); ctx.lineTo(8,9); ctx.lineTo(-10,9); ctx.closePath(); ctx.fill();
+    // cream top
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(0,-16,5,0,Math.PI*2); ctx.fill();
+    // cherry
+    ctx.fillStyle = '#e0405a';
+    ctx.beginPath(); ctx.arc(0,-19,3,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawKid(k) {
+    const kx = player.x + k.ox, ky = player.y + k.oy + Math.sin(k.bob)*4;
+    ctx.save();
+    ctx.translate(kx, ky);
+
+    if (k.type === 'cap') {
+      // 帽子の子：白キャップ＋黄緑チェックシャツ
+      ctx.fillStyle = '#cdeac0';
+      ctx.beginPath(); ctx.arc(0,0,15,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#7fae6a'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(-15,-3); ctx.lineTo(15,-3); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-15,5); ctx.lineTo(15,5); ctx.stroke();
+      ctx.fillStyle = '#ffd9a0';
+      ctx.beginPath(); ctx.arc(0,-10,9,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(0,-15,9,Math.PI,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#5a3d1c';
+      ctx.beginPath(); ctx.arc(-3,-10,1.3,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(3,-10,1.3,0,Math.PI*2); ctx.fill();
+    } else if (k.type === 'dress') {
+      // ワンピースの子：水玉の薄緑ワンピース
+      ctx.fillStyle = '#d7ecd9';
+      ctx.beginPath();
+      ctx.moveTo(-7,-6); ctx.lineTo(7,-6); ctx.lineTo(13,14); ctx.lineTo(-13,14); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#a9cfae';
+      [[-6,0],[4,4],[-2,9],[8,-2]].forEach(([dx,dy])=>{
+        ctx.beginPath(); ctx.arc(dx,dy,1.3,0,Math.PI*2); ctx.fill();
+      });
+      ctx.fillStyle = '#ffd9a0';
+      ctx.beginPath(); ctx.arc(0,-12,9,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#2b2b2b';
+      ctx.beginPath(); ctx.moveTo(-9,-18); ctx.quadraticCurveTo(0,-23,9,-18);
+      ctx.quadraticCurveTo(9,-9,0,-7); ctx.quadraticCurveTo(-9,-9,-9,-18); ctx.fill();
+      ctx.fillStyle = '#5a3d1c';
+      ctx.beginPath(); ctx.arc(-3,-12,1.3,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(3,-12,1.3,0,Math.PI*2); ctx.fill();
+    } else {
+      // Tシャツの子：紺のスポーティTシャツ
+      ctx.fillStyle = '#2c3e6b';
+      ctx.beginPath(); ctx.arc(0,2,14,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#7fd4e0'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(-10,-2); ctx.lineTo(10,8); ctx.stroke();
+      ctx.fillStyle = '#ffd9a0';
+      ctx.beginPath(); ctx.arc(0,-11,9,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#2b2b2b';
+      ctx.beginPath(); ctx.arc(0,-16,9,Math.PI,Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#5a3d1c';
+      ctx.beginPath(); ctx.arc(-3,-11,1.3,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(3,-11,1.3,0,Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawParticle(p) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(p.life,0);
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBackground() {
+    ctx.clearRect(0,0,W,H);
+    // clouds
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    const t = frame*0.15;
+    for (let i=0;i<4;i++) {
+      const cx = ((i*220 + t) % (W+200)) - 100;
+      const cy = 60 + i*70;
+      ctx.beginPath();
+      ctx.arc(cx,cy,28,0,Math.PI*2);
+      ctx.arc(cx+26,cy+6,22,0,Math.PI*2);
+      ctx.arc(cx-24,cy+8,20,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  function draw() {
+    drawBackground();
+    cakes.forEach(drawCake);
+    enemies.forEach(drawEnemy);
+    bullets.forEach(drawBullet);
+    particles.forEach(drawParticle);
+    kids.forEach(drawKid);
+    drawPlayer();
+  }
+
+  let raf = null;
+  function loop() {
+    if (state !== 'playing') return;
+    update();
+    draw();
+    raf = requestAnimationFrame(loop);
+  }
+
+  function startGame() {
+    document.getElementById('startScreen').classList.add('hidden');
+    document.getElementById('overScreen').classList.add('hidden');
+    resetGame();
+    state = 'playing';
+    audio();
+    loop();
+  }
+
+  let best = 0;
+  function endGame() {
+    state = 'over';
+    cancelAnimationFrame(raf);
+    document.getElementById('scoreFinal').textContent = score;
+    const rec = document.getElementById('newRecord');
+    if (score > best) { best = score; rec.textContent = '🎉 ハイスコア更新！'; }
+    else { rec.textContent = 'ベスト: ' + best; }
+    document.getElementById('overScreen').classList.remove('hidden');
+  }
+
+  document.getElementById('startBtn').addEventListener('click', startGame);
+  document.getElementById('retryBtn').addEventListener('click', startGame);
+
+  // initial idle background animation
+  function idleDraw() {
+    if (state === 'idle') {
+      drawBackground();
+      requestAnimationFrame(idleDraw);
+    }
+  }
+  idleDraw();
+})();
+</script>
+</body>
+</html>
