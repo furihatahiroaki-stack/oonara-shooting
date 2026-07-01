@@ -90,10 +90,6 @@
   const bgmGame = new Audio('bgm_game.mp3');
   bgmGame.loop = true; bgmGame.volume = 0.6;
 
-  let bgmReady = false;
-  function initBgm() {
-    if (!bgmReady) { bgmReady = true; bgmTitle.play().catch(()=>{}); }
-  }
   function switchToGameBgm() {
     bgmTitle.pause(); bgmTitle.currentTime = 0;
     bgmGame.currentTime = 0; bgmGame.play().catch(()=>{});
@@ -102,11 +98,6 @@
     bgmGame.pause(); bgmGame.currentTime = 0;
     bgmTitle.currentTime = 0; bgmTitle.play().catch(()=>{});
   }
-
-  // タイトル画面で最初のユーザー操作時にBGM開始
-  ['keydown','touchstart','mousedown'].forEach(ev =>
-    window.addEventListener(ev, initBgm, { once: true })
-  );
 
   // ---------- Audio ----------
   let actx = null;
